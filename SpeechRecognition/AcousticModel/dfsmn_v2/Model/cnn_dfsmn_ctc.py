@@ -14,11 +14,12 @@ tf.logging.set_verbosity(tf.logging.INFO)
 
 # =============================模型超参数====================================
 def am_hparams():
-    params = tf.contrib.training.HParams(data_path=None, label_path=None, thchs30=False, aishell=False, prime=False,
-                                         stcmd=False, vocab_dict=None, bsz=1, epoch=1, lr=1e-4, dropout=0.5,
-                                         d_input=384, d_model=1024, l_mem=20, r_mem=20, stride=2, n_init_filters=32,
-                                         n_conv=2, n_cnn_layers=4, n_dfsmn_layers=6, init_range=1, init_std=0,
-                                         is_training=False, save_path=None)
+    params = tf.contrib.training.HParams(data_type='train', data_path=None, label_path=None, data_length=None, 
+                                        thchs30=False, aishell=False, prime=False,
+                                        stcmd=False, vocab_dict=None, bsz=1, epoch=1, lr=1e-4, dropout=0.5,
+                                        d_input=384, d_model=1024, l_mem=20, r_mem=20, stride=2, n_init_filters=32,
+                                        n_conv=2, n_cnn_layers=4, n_dfsmn_layers=6, init_range=1, init_std=0,
+                                        is_training=False, save_path=None)
 
     return params
 
@@ -27,8 +28,10 @@ def am_hparams():
 class Am:
     def __init__(self, args):
         # 数据参数
+        self.data_type = args.data_type
         self.data_path = args.data_path
         self.label_path = args.label_path
+        self.data_length = args.data_length
         self.thchs30 = args.thchs30
         self.aishell = args.aishell
         self.prime = args.prime
@@ -61,10 +64,11 @@ class Am:
         self.build_parameters()
 
         # 存储路径
-        self.model_save_name = args.save_path + 'cnn_dfsmn_ctc'
+        self.save_dir = args.save_path
+        self.model_save_name = args.save_path + 'epoch_{:04}_valloss_{:.3f}'
         self.model_save_checkpoint = args.save_path + 'checkpoint'
 
-    def generate_data_set(self):
+    def generate_data_set(self, data_type):
         # 1.获取文件数据和标签列表
         file_list = []
         label_list = []
@@ -72,28 +76,38 @@ class Am:
         def read_file_list(data_path, label_path):
             tf.logging.info('get source list...')
             read_files = []
-            if self.thchs30 == True:
-                read_files.append(label_path + 'thchs_train.txt')
-            if self.aishell == True:
-                read_files.append(label_path + 'aishell_train.txt')
-            if self.prime == True:
-                read_files.append(label_path + 'prime.txt')
-            if self.stcmd == True:
-                read_files.append(label_path + 'stcmd.txt')
+            if data_type == 'train':
+                if self.thchs30 == True:
+                    read_files.append(label_path + 'thchs_train.txt')
+                if self.aishell == True:
+                    read_files.append(label_path + 'aishell_train.txt')
+                if self.prime == True:
+                    read_files.append(label_path + 'prime.txt')
+                if self.stcmd == True:
+                    read_files.append(label_path + 'stcmd.txt')
+            elif data_type == 'dev':
+                if self.thchs30 == True:
+                    read_files.append(label_path + 'thchs_dev.txt')
+                if self.aishell == True:
+                    read_files.append(label_path + 'aishell_dev.txt')
 
             for file in read_files:
                 tf.logging.info('load %s data...', file)
                 with open(file, 'r', encoding='utf8') as fo:
+                    length = 0
                     for line in fo:
+                        if self.data_length is not None and length >= self.data_length:
+                            break
                         wav_file, label, _ = line.split('\t')
                         file_list.append(data_path + wav_file)
                         label_list.append(label.split(' '))
+                        length += 1
 
         read_file_list(self.data_path, self.label_path)
 
         # batch生成器定义
         def am_batch():
-            index_list = [i for i in range(len(file_list))]
+            index_list = list(range(len(file_list)))    #[i for i in range(len(file_list))]
             wav_data_list = []
             label_data_list = []
             while 1:
@@ -292,7 +306,7 @@ class Am:
         :return: None
         """
         # 1.训练数据获取
-        am_batch = self.generate_data_set()
+        am_batch = self.generate_data_set('train')
 
         # 2.构建数据流图
         # 模型输入的定义
@@ -359,7 +373,7 @@ class Am:
         :return: None
         """
         # 1.训练数据获取
-        am_batch = self.generate_data_set()
+        train_batch = self.generate_data_set('train')
         bsz_per_gpu = self.bsz // gpu_nums
 
         # 2.构建数据流图
@@ -407,34 +421,63 @@ class Am:
             # 判断模型是否存在
             if os.path.exists(self.model_save_checkpoint):
                 # 恢复变量
-                saver.restore(sess, self.model_save_name)
+                model_name = tf.train.latest_checkpoint(self.save_dir)
+                import re
+                pre_epoch = int(re.findall('\d+', model_name)[0])
+                min_loss = int(re.findall('\d+', model_name)[1])
+                saver.restore(sess, model_name)
             else:
                 # 初始化变量
+                pre_epoch = -1
+                min_loss = 1000
                 sess.run(tf.global_variables_initializer())
 
             # 开始迭代，使用Adam优化的随机梯度下降法，并将结果输出到日志文件
             tf.logging.info('training------')
             fetches = [train_op, loss]
-            for i in range(self.epoch):
+            #训练==============================================
+            for i in range(pre_epoch+1, self.epoch):
                 total_loss = 0
                 step = 0
                 while 1:
-                    batch_data = next(am_batch)
+                    batch_data = next(train_batch)
                     if batch_data is None:
                         break
                     feed_dict = {inputs: batch_data[0], inputs_length: batch_data[1], labels: batch_data[2],
-                                 labels_length: batch_data[3]}
+                                labels_length: batch_data[3]}
                     _, loss_np = sess.run(fetches, feed_dict=feed_dict)
-                    print("setp:{:>4}, step_loss:{:.4f}".format(step, loss_np))
-
                     total_loss += loss_np
                     step += 1
+                    if step % 500 == 0:
+                        print("setp:{:>4}, step_loss:{:.4f}".format(step, loss_np / step))
+
                 tf.logging.info('[%s] [epoch %d] loss %f', time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), i,
                                 total_loss / step)
+                #验证==============================================
+                dev_batch = self.generate_data_set('dev')
+                total_loss = 0
+                step = 0
+                while 1:
+                    batch_data = next(dev_batch)
+                    if batch_data is None:
+                        break
+                    feed_dict = {inputs: batch_data[0], inputs_length: batch_data[1], labels: batch_data[2],
+                                labels_length: batch_data[3]}
+                    _, loss_np = sess.run(fetches, feed_dict=feed_dict)
+                    total_loss += loss_np
+                    step += 1
+                    if step % 500 == 0:
+                        print("setp:{:04d}, step_loss:{:.4f}".format(step, loss_np / step))
 
-            # 保存模型
-            tf.logging.info('save model------')
-            saver.save(sess, self.model_save_name)
+                tf.logging.info('[%s] [epoch %d] loss %f', time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), i,
+                                total_loss / step)
+                dev_loss = total_loss / step
+                print('epoch={:04d}, val_loss={.3f}'.format(i, dev_loss))
+                if dev_loss < min_loss:
+                    # 保存模型
+                    min_loss = dev_loss
+                    tf.logging.info('save model------')
+                    saver.save(sess, self.model_save_name.format(i, dev_loss))
 
         pass
 
