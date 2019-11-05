@@ -9,7 +9,7 @@ import tensorflow as tf
 from scipy.fftpack import fft
 from tensorflow.contrib.keras import backend as tfk
 
-tf.logging.set_verbosity(tf.logging.INFO)
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.INFO)
 
 
 # =============================模型超参数====================================
@@ -424,7 +424,7 @@ class Am:
                 model_name = tf.train.latest_checkpoint(self.save_dir)
                 import re
                 pre_epoch = int(re.findall('\d+', model_name)[0])
-                min_loss = int(re.findall('\d+', model_name)[1])
+                min_loss = float(re.findall('\d+', model_name)[1])
                 saver.restore(sess, model_name)
             else:
                 # 初始化变量
@@ -472,7 +472,7 @@ class Am:
                 tf.logging.info('[%s] [epoch %d] loss %f', time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), i,
                                 total_loss / step)
                 dev_loss = total_loss / step
-                print('epoch={:04d}, val_loss={.3f}'.format(i, dev_loss))
+                print('epoch={:04d}, val_loss={:.3f}'.format(i, dev_loss))
                 if dev_loss < min_loss:
                     # 保存模型
                     min_loss = dev_loss
@@ -497,7 +497,8 @@ class Am:
         # 2.开启会话
         saver = tf.train.Saver()
         self.sess = tf.Session()
-        saver.restore(self.sess, self.model_save_name)
+        model = tf.train.latest_checkpoint(self.save_dir)
+        saver.restore(self.sess, model)
         # self.sess.run(tf.global_variables_initializer())
 
         pass

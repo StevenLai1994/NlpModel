@@ -26,14 +26,14 @@ def dfsmn_model_train (data_path, label_path):
     am_args = am_hparams()
     am_args.data_path = data_path
     am_args.label_path = label_path
-    am_args.data_length = 16
     am_args.thchs30 = True
     am_args.aishell = False
     am_args.prime = False
     am_args.stcmd = False
     am_args.vocab_dict = pinyin_dict
+    am_args.data_length = 16
     am_args.bsz = 8
-    am_args.epoch = 50
+    am_args.epoch = 500
     am_args.lr = 1e-4
     am_args.dropout = 0.5
     am_args.d_input = 384
@@ -101,5 +101,6 @@ if __name__ == '__main__':
     data_path = r'D:\workspace\datas/'
     wave_path = r'D:\workspace\datas\data_thchs30\data/A2_0.wav'
     wav2 = r'D:\workspace\API_and_SDK\asr_tts_api\tts\voice/voice.wav'
+    wav3 = r"D:\workspace\datas\data_thchs30\test/D4_750.wav"
     dfsmn_model_train(data_path, label_path)
-    # dfsmn_model_decode(wave_path)
+    # dfsmn_model_decode(wav2)

@@ -1,2 +1,2 @@
-model_checkpoint_path: "cnn_dfsmn_ctc"
-all_model_checkpoint_paths: "cnn_dfsmn_ctc"
+model_checkpoint_path: "cnn_dfsmn_ctc_0100_20"
+all_model_checkpoint_paths: "cnn_dfsmn_ctc_0100_20"
